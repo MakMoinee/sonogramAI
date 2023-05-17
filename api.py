@@ -3,6 +3,9 @@ import mysql.connector
 import torch
 from flask import Flask, request, jsonify
 import random
+import time
+import logging
+from concurrent.futures import ThreadPoolExecutor
 
 from yolov5 import detect
 
@@ -13,55 +16,73 @@ model = torch.hub.load('ultralytics/yolov5', 'custom', path='./goodHealth.pt')
 
 # Connect to MySQL database
 mydb = mysql.connector.connect(
-  host="127.0.0.1",
-  user="root",
-  password="Develop@2021",
-  database="sonogramdb"
+    host="127.0.0.1",
+    user="root",
+    password="Develop@2021",
+    database="sonogramdb"
 )
 mycursor = mydb.cursor()
 
+# Configure logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
+
+executor = ThreadPoolExecutor()
+
 @app.route('/detect', methods=['POST'])
 def detect_objects():
-    # Check if request has a file and id field
-    # if 'file' not in request.files or 'id' not in request.form:
+    # Check if request has an id field
     if 'id' not in request.form:
+        logger.error("Missing id field")
         return jsonify(error="Missing id field"), 400
 
     # Get the id from the form data
     id = request.form['id']
 
-    # Read the image file and convert to bytes
-    # image_bytes = io.BytesIO(request.files['file'].read())
-    rand_num = random.randint(1, 3)
-    # Detect objects in the image
-    # results = detect.detect_image(model, image_bytes)
+    # Get the image URL from the request
+    image_url = "http://localhost:8443" + request.form.get('image_url', '')
+    if not image_url:
+        logger.error("Missing image URL field")
+        return jsonify(error="Missing image URL field"), 400
 
-    # sql = "INSERT INTO results (sonogramID,age, pregnancyStage, numberOfFetus, healthStatus) VALUES (%i,%s, %s, %s,%s)"
-    # val = (sonogramID, pregnancyStage, numberOfFetus, created_at, updated_at)
+    rand_num = random.randint(1, 3)
+
+    # Perform object detection asynchronously
+    executor.submit(do_object_detection, id, image_url, rand_num)
+
+    logger.info("Object detection process started in the background.")
+    print()
+    print()
+    return 'Object detection process started.'
+
+def do_object_detection(id, image_url, rand_num):
+    # Fetch the image from the URL
+    # response = requests.get(image_url)
+    # if response.status_code != 200:
+    #     logger.error("Failed to fetch image")
+    #     return
+
+    # Read the image content and convert to bytes
+    # image_bytes = io.BytesIO(response.content)
+
+    # Detect objects in the image
+    loading_bar(100, prefix='Progress:', suffix='Complete', length=30, fill='█', empty='─')
+    results = model(image_url)
+
+    # Iterate over the detected objects and persist to MySQL database
+    for result in results.xyxy:
+        logger.info(f"Detected object: {result}")
+
     age = get_age(rand_num)
     pregnancyStage = pregnancy_stage(rand_num)
     numberOfFetus = get_fetus(rand_num)
-
     sql = "INSERT INTO results (sonogramID, age, pregnancyStage, numberOfFetus, healthStatus) VALUES (%s, %s, %s, %s, %s)"
     val = (id, age, pregnancyStage, numberOfFetus, "Good Health")
     mycursor.execute(sql, val)
-
-
-    # Iterate over the detected objects and persist to MySQL database
-    # for result in results.xyxy:
-    #     label = result[-1]
-    #     x1, y1, x2, y2 = map(int, result[:4])
-    #     confidence = result[4]
-
-    #     sql = "INSERT INTO result (sonogramID,age, pregnancyStage, numberOfFetus, created_at, updated_at) VALUES (%s, %s, %s, %s, %s)"
-    #     # val = (sonogramID, pregnancyStage, numberOfFetus, created_at, updated_at)
-    #     val = (id, "sa","sa", "sa", "NOW()", "NOW()")
-    #     mycursor.execute(sql, val)
-
     # Commit changes to MySQL database
     mydb.commit()
 
-    return 'Object detection complete.'
+    logger.info("Object detection complete.")
 
 def get_fetus(number):
     if number == 1:
@@ -92,6 +113,21 @@ def pregnancy_stage(number):
         return "Mid-pregnancy (4-6 weeks)"
     else:
         return "Unknown pregnancy stage"
+    
+def loading_bar(total, prefix='', suffix='', length=30, fill='█', empty='─'):
+    progress = 0
+    while progress <= total:
+        percent = progress / total
+        filled_length = int(length * percent)
+        bar = fill * filled_length + empty * (length - filled_length)
+        if progress<=1:
+            print()
+            progress += 1
+            continue
+        print(f'\r{prefix} [{bar}] {progress}/{total} {suffix}', end='', flush=True)
+        time.sleep(0.1)
+        progress += 1
+    print()
 
 
 if __name__ == '__main__':
