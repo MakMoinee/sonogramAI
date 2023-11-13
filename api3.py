@@ -45,9 +45,9 @@ model = torch.hub.load('ultralytics/yolov5', 'custom', path='./best.pt')
 # Connect to MySQL database
 mydb = mysql.connector.connect(
     host="127.0.0.1",
-    user="pawscans_fb",
-    password="Paws@2023",
-    database="pawscans_db"
+    user="root",
+    password="Develop@2021",
+    database="sonogramdb"
 )
 mycursor = mydb.cursor()
 
@@ -76,14 +76,12 @@ def detect_objects():
     rawImage = request.form.get('image_url', '')
     print(storagePath)
     # Get the image URL from the request
-    image_url = "http://localhost:8443" + rawImage
+    image_url = "https://pawscans.online" + rawImage
     if not image_url:
         logger.error("Missing image URL field")
         return jsonify(error="Missing image URL field"), 400
 
     rand_num = random.randint(1, 3)
-
-    print(image_url)
 
     # Perform object detection asynchronously
     executor.submit(do_object_detection, id, image_url, rand_num,storagePath, rawImage)
@@ -118,7 +116,6 @@ def do_object_detection(id, image_url, rand_num,storagePath, rawImage):
 
         # Get the number of detected objects
         numberOfFetus = df.shape[0]
-        print(numberOfFetus)
 
 
     except Exception as e:
@@ -159,7 +156,6 @@ def do_object_detection(id, image_url, rand_num,storagePath, rawImage):
             rawImageSlice = rawImage.split("/")
             imageNoExt = rawImageSlice[3].split(".")
             imagePath = "/storage/results/" + imageNoExt[0] +".jpg"
-            print(imagePath)
 
             results.save(save_dir=storagePath,exist_ok=True)
             sql = "INSERT INTO results (sonogramID, age, pregnancyStage, numberOfFetus, healthStatus,imagePath) VALUES (%s, %s, %s, %s, %s,%s)"
